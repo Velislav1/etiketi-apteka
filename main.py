@@ -902,14 +902,15 @@ def download_and_stage_update(zip_url):
     exe_path = os.path.join(app_dir, "EtiketiApteka.exe")
     bat_path = os.path.join(stage_dir, "obnovi.bat")
     # UTF-8 + chcp 65001 - inache kirilitsa v patya (napr. ime na potrebitel) se chupi.
-    with open(bat_path, "w", encoding="utf-8") as f:
+    # ping vmesto timeout - timeout ne raboti bez konzolа (CREATE_NO_WINDOW).
+    with open(bat_path, "w", encoding="utf-8", newline="") as f:
         f.write(
             "@echo off\r\n"
             "chcp 65001 >nul\r\n"
             "echo Obnovyavam programata, molya izchakay...\r\n"
             ":wait\r\n"
             f'tasklist /FI "PID eq {os.getpid()}" | find "{os.getpid()}" >nul\r\n'
-            "if not errorlevel 1 (timeout /t 1 /nobreak >nul & goto wait)\r\n"
+            "if not errorlevel 1 (ping -n 2 127.0.0.1 >nul & goto wait)\r\n"
             f'robocopy "{src}" "{app_dir}" /E /NFL /NDL /NJH /NJS /NP >nul\r\n'
             f'start "" "{exe_path}"\r\n'
         )
