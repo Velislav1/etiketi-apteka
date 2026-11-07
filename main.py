@@ -948,7 +948,7 @@ def fetch_nzok_reimbursement_table():
 
 # ---------- Avtomatichno obnovyavane (ot GitHub Releases) ----------
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 GITHUB_REPO = "Velislav1/etiketi-apteka"
 UPDATE_ASSET_NAME = "EtiketiApteka.zip"
 # Failove na potrebitelya, koito NE se prezapisvat pri obnovyavane.
@@ -2201,6 +2201,11 @@ class FilePanel:
         if not number_col and self.headers:
             number_col = self.headers[0]
 
+        # Zapazena kolona v lv. (napr. izbrana po greshka vednazh) ne se polzva
+        # avtomatichno kato tsena v € - tova dаvashe lv. na NZOK etiketite i
+        # chupeshe kalkulatsiyata (tsena v lv. minus reimbursatsiya v €).
+        if last_eur and guess_column([last_eur], BGN_KEYWORDS) and not guess_column([last_eur], EUR_KEYWORDS):
+            last_eur = None
         eur_col = last_eur if last_eur in self.headers else guess_column(self.headers, EUR_KEYWORDS, exclude={number_col})
         bgn_col = last_bgn if last_bgn in self.headers else guess_column(self.headers, BGN_KEYWORDS, exclude={number_col, eur_col})
 
