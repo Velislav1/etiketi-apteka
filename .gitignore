@@ -1,0 +1,9 @@
+venv/
+build/
+dist/
+__pycache__/
+*.spec
+config.json
+nzok_reimbursements.json
+SumatraPDF.exe
+screenshot_*.png

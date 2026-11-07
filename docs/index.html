@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Етикети за аптека</title>
+<style>
+  :root { --bg:#f6efdd; --panel:#fffdf6; --text:#2c2413; --muted:#7d735c; --gold:#d4af37; --green:#2e9e5c; --border:#cdbf9c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.55 "Segoe UI", system-ui, sans-serif; }
+  header { background:#020203; color:var(--gold); padding:28px 16px; text-align:center; }
+  header h1 { margin:0; font-size:28px; letter-spacing:.5px; }
+  header p { margin:6px 0 0; color:#f2d675; }
+  main { max-width:720px; margin:0 auto; padding:24px 16px 48px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:20px; margin-bottom:18px; }
+  .btn { display:block; text-align:center; background:var(--green); color:#fff; text-decoration:none; font-weight:600; font-size:20px; padding:16px; border-radius:8px; }
+  .btn:hover { background:#42c47a; }
+  .ver { text-align:center; color:var(--muted); font-size:14px; margin-top:8px; }
+  h2 { margin:0 0 10px; font-size:19px; }
+  ol { margin:0; padding-left:22px; } li { margin:6px 0; }
+  code { background:#eee1c3; padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Етикети за аптека</h1>
+  <p>Етикети с цени за Свободна продажба и НЗОК</p>
+</header>
+<main>
+  <div class="card">
+    <a class="btn" href="https://github.com/Velislav1/etiketi-apteka/releases/latest/download/EtiketiApteka.zip">⬇ Изтегли програмата</a>
+    <div class="ver" id="ver">Windows 10 / 11 · не е нужен Python</div>
+  </div>
+
+  <div class="card">
+    <h2>Инсталиране на нов компютър</h2>
+    <ol>
+      <li>Натисни <b>„Изтегли програмата“</b> по-горе.</li>
+      <li>Отвори изтегления <code>EtiketiApteka.zip</code> → десен бутон → <b>Extract All…</b> (Извлечи всички) → избери Desktop.</li>
+      <li>В папката <code>EtiketiApteka</code> пусни <b>EtiketiApteka.exe</b>. За удобство: десен бутон → Send to → Desktop (create shortcut).</li>
+      <li>Ако Windows покаже синьо прозорче „Windows protected your PC“ → <b>More info</b> → <b>Run anyway</b>. Това е само първия път.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Обновяване</h2>
+    <p style="margin:0">Не е нужно да теглиш отново. При всяко пускане програмата проверява за нова версия и пита дали да се обнови. Настройките на етикетите и принтера се запазват.</p>
+  </div>
+</main>
+<script>
+  fetch("https://api.github.com/repos/Velislav1/etiketi-apteka/releases/latest")
+    .then(r => r.ok ? r.json() : null)
+    .then(d => { if (d && d.tag_name) document.getElementById("ver").textContent =
+      "Версия " + d.tag_name.replace(/^v/, "") + " · Windows 10 / 11 · не е нужен Python"; })
+    .catch(() => {});
+</script>
+</body>
+</html>
