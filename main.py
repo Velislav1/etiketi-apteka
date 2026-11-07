@@ -49,7 +49,21 @@ def _app_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
-CONFIG_PATH = os.path.join(_app_dir(), "config.json")
+def _data_dir():
+    """Papka s nastroykite na potrebitelya (%APPDATA%\\EtiketiApteka) - otdelno
+    ot papkata na programata, za da ne se gubyat pri novo svalyane/razarhivirane
+    na programata na drugo myasto ili pri obnovyavane."""
+    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    path = os.path.join(base, "EtiketiApteka")
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError:
+        return _app_dir()
+    return path
+
+
+DATA_DIR = _data_dir()
+CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
 ASSETS_DIR = os.path.join(_bundle_root(), "assets")
 LOGO_PATH = os.path.join(ASSETS_DIR, "logo.png")
 
@@ -404,7 +418,11 @@ def clean_price(value):
     if not text:
         return None
     if "," in text and "." in text:
-        text = text.replace(",", "")
+        # Desetichniyat znak e posledniyat: "1.234,56" (BG) i "1,234.56" (EN).
+        if text.rfind(",") > text.rfind("."):
+            text = text.replace(".", "").replace(",", ".")
+        else:
+            text = text.replace(",", "")
     else:
         text = text.replace(",", ".")
     try:
@@ -635,20 +653,100 @@ def generate_nzok_labels_pdf(labels, output_path, layout=None, start_row=1, star
     c.save()
 
 
-def load_config():
-    if os.path.exists(CONFIG_PATH):
+# Edin obsht rechnik s nastroykite za tsyalata programa. Predi vseki tab
+# pazeshe svoe kopie, zarедено pri start, i go zapisvashe tsyaloto pri vsyako
+# zarezhdane na fail -> prezapisvashe kalibrovkata i printera, zapazeni
+# mezhduvremenno ot taba "Kalibrovka" (nastroykite "izchezvaha").
+_CONFIG = None
+
+# Klyuchove, po koito poznavame config.json na tazi programa (ne na druga).
+_OWN_CONFIG_KEYS = ("label_layout", "label_layout_otc", "label_layout_nzok", "printer_name",
+                    "otc_eur_column", "nzok_eur_column", "last_dir")
+
+
+def _read_json(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def _old_config_candidates():
+    """Vuzmozhni mesta na config.json ot predishni instalatsii (ot flashka,
+    Start.bat/.exe v papka do programata, versiya 1.1.0 do .exe-to)."""
+    home = os.path.expanduser("~")
+    bases = [_app_dir(), os.path.join(home, "Desktop"), os.path.join(home, "Downloads"),
+             os.path.join(home, "Documents"), "C:\\"]
+    try:
+        bases += [os.path.join(home, d, "Desktop") for d in os.listdir(home) if d.lower().startswith("onedrive")]
+    except OSError:
+        pass
+    found = [os.path.join(_app_dir(), "config.json")]
+    for base in bases:
         try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
+            names = os.listdir(base)
+        except OSError:
+            continue
+        for name in names:
+            folder = os.path.join(base, name)
+            if not os.path.isdir(folder):
+                continue
+            for sub in (folder, os.path.join(folder, "EtiketiApteka")):
+                if (os.path.exists(os.path.join(sub, "main.py"))
+                        or os.path.exists(os.path.join(sub, "EtiketiApteka.exe"))):
+                    found.append(os.path.join(sub, "config.json"))
+    return found
+
+
+def _migrate_old_config():
+    """Pri parvo pускане na tazi versiya prehvurlya kalibrovkata, printera i
+    izbranite koloni ot stara instalatsiya - za da ne se nastroyva vsichko
+    nanovo. Predpochita config-a s kalibrovka/printer, posle nay-noviya."""
+    best, best_key = None, None
+    for path in _old_config_candidates():
+        if not os.path.exists(path) or os.path.abspath(path) == os.path.abspath(CONFIG_PATH):
+            continue
+        data = _read_json(path)
+        if not data or not any(k in data for k in _OWN_CONFIG_KEYS):
+            continue
+        has_calib = any(k in data for k in ("label_layout", "label_layout_otc", "label_layout_nzok", "printer_name"))
+        key = (has_calib, len(data), os.path.getmtime(path))
+        if best_key is None or key > best_key:
+            best, best_key = data, key
+    return best or {}
+
+
+def load_config():
+    global _CONFIG
+    if _CONFIG is None:
+        if os.path.exists(CONFIG_PATH):
+            _CONFIG = _read_json(CONFIG_PATH)
+            if _CONFIG is None:
+                # Povreden fail - pazim kopie, vmesto da go prezapishem s prazni nastroyki.
+                try:
+                    os.replace(CONFIG_PATH, CONFIG_PATH + ".povreden")
+                except OSError:
+                    pass
+                _CONFIG = {}
+        else:
+            _CONFIG = _migrate_old_config()
+            if _CONFIG:
+                save_config(_CONFIG)
+    return _CONFIG
 
 
 def save_config(cfg):
+    global _CONFIG
+    _CONFIG = cfg
+    # Zapis prez vremenen fail + os.replace - pri spirane na toka/zatvaryane
+    # po vreme na zapis ne ostava polovin (povreden) config.json.
+    tmp_path = CONFIG_PATH + ".tmp"
     try:
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, CONFIG_PATH)
     except Exception:
         pass
 
@@ -667,6 +765,13 @@ def print_pdf_file(path):
     ne e naliчen do programata, se vrashta kum obiknoveniya nachin."""
     if os.path.exists(SUMATRA_PATH):
         printer_name = load_printer_name()
+        # Zapazeniyat printer moje da go nyama na tozi kompyutar (nastroyki,
+        # prehvarleni ot drug kompyutar, ili premahnat printer) - togava
+        # pechatame na tozi po podrazbirane, vmesto da gurmi greshka.
+        if printer_name:
+            installed = list_printers()
+            if installed and printer_name not in installed:
+                printer_name = None
         printer_args = ["-print-to", printer_name] if printer_name else ["-print-to-default"]
         subprocess.run(
             [
@@ -687,18 +792,17 @@ def print_pdf_file(path):
 # ---------- NZOK reimbursatsii (avtomatichno svalyane ot nhif.bg) ----------
 
 NZOK_UPDATES_PAGE = "https://www.nhif.bg/bg/software/drugstores/updates/{year}"
-REIMB_CACHE_PATH = os.path.join(_app_dir(), "nzok_reimbursements.json")
+REIMB_CACHE_PATH = os.path.join(DATA_DIR, "nzok_reimbursements.json")
+# Spisakat, koyto idva s programata - polzva se, dokato ne se svali nov.
+REIMB_BUNDLED_PATH = os.path.join(_app_dir(), "nzok_reimbursements.json")
 
 
 def load_reimbursement_cache():
     """Vrushta (tablitsa {kod: reimbursatsiya_na_opakovka_v_EUR}, mesets_kato_'MM.YYYY')."""
-    if os.path.exists(REIMB_CACHE_PATH):
-        try:
-            with open(REIMB_CACHE_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
+    for path in (REIMB_CACHE_PATH, REIMB_BUNDLED_PATH):
+        data = _read_json(path) if os.path.exists(path) else None
+        if data and data.get("table"):
             return data.get("table", {}), data.get("month")
-        except Exception:
-            return {}, None
     return {}, None
 
 
@@ -844,7 +948,7 @@ def fetch_nzok_reimbursement_table():
 
 # ---------- Avtomatichno obnovyavane (ot GitHub Releases) ----------
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 GITHUB_REPO = "Velislav1/etiketi-apteka"
 UPDATE_ASSET_NAME = "EtiketiApteka.zip"
 # Failove na potrebitelya, koito NE se prezapisvat pri obnovyavane.
@@ -1234,7 +1338,8 @@ class App(BaseTk):
         # NZOK, Enter sled tsenata skachashe napravo kum zapisvane predi
         # potrebitelyat da e vpisal reimbursatsiyata, i vinagi izlizashe
         # greshka "въведи валидна реимбурсация".
-        code_entry.bind("<Return>", lambda e: price_entry.focus_set())
+        code_entry.bind("<Return>", lambda e: (self._manual_fill_reimb(), price_entry.focus_set()))
+        code_entry.bind("<FocusOut>", lambda e: self._manual_fill_reimb())
         price_entry.bind(
             "<Return>",
             lambda e: self.manual_reimb_entry.focus_set() if self._current_manual_kind() == "nzok" else qty_spin.focus_set(),
@@ -1329,6 +1434,16 @@ class App(BaseTk):
             for col, w in (("code", 150), ("price", 150), ("qty", 150)):
                 self.manual_tree.column(col, width=w)
 
+    def _manual_fill_reimb(self):
+        """Pri NZOK popalva reimbursatsiyata sama ot svalenia spisak na NZOK
+        (ako polето e prazno) - moje da se koригира rachno sled tova."""
+        if self._current_manual_kind() != "nzok" or self.manual_reimb_var.get().strip():
+            return
+        code = clean_code(self.manual_code_var.get())
+        reimb = self.nzok_panel.reimbursements.get(code) if code else None
+        if reimb is not None:
+            self.manual_reimb_var.set(f"{reimb:.2f}")
+
     def _manual_kind_changed(self):
         new_kind = self._current_manual_kind()
         if new_kind == self._manual_current_kind_cache:
@@ -1359,7 +1474,7 @@ class App(BaseTk):
             qty = 1
 
         if code is None:
-            messagebox.showwarning("Внимание", "Въведи валиден код (число).")
+            messagebox.showwarning("Внимание", "Въведи код на продукта.")
             return
         if price is None:
             messagebox.showwarning("Внимание", "Въведи валидна цена в €.")
@@ -1610,7 +1725,7 @@ class App(BaseTk):
         # koригира chislata i samo natisne test/pechat (bez otdelno "Zapazi
         # nastroykite"), popravkite se gubyat pri sledvashto otvaryane.
         save_label_layout(layout, self._current_calib_kind())
-        out_path = os.path.join(_app_dir(), "kalibrovka.pdf")
+        out_path = os.path.join(DATA_DIR, "kalibrovka.pdf")
         try:
             generate_calibration_grid_pdf(out_path, layout=layout)
         except Exception as e:
@@ -1631,7 +1746,7 @@ class App(BaseTk):
             return
         self._save_printer_choice()
         save_label_layout(layout, self._current_calib_kind())
-        out_path = os.path.join(_app_dir(), "primeren_etiket.pdf")
+        out_path = os.path.join(DATA_DIR, "primeren_etiket.pdf")
         try:
             if self._current_calib_kind() == "nzok":
                 sample = [("NG050", 5.40, 1.39), ("AF469", 6.20, 1.71), ("CA029", 4.10, 2.75)] * 8
@@ -1650,7 +1765,7 @@ class App(BaseTk):
             return
         self._save_printer_choice()
         save_label_layout(layout, self._current_calib_kind())
-        out_path = os.path.join(_app_dir(), "kalibrovka.pdf")
+        out_path = os.path.join(DATA_DIR, "kalibrovka.pdf")
         try:
             generate_calibration_grid_pdf(out_path, layout=layout)
             print_pdf_file(out_path)
@@ -2519,7 +2634,9 @@ class NzokFilePanel(FilePanel):
     def _maybe_auto_refresh(self):
         """Avtomatichna proverka pri start na programata - NZOK publikuva nov spisak
         okolo 1-vo i 16-o chislo na meseca, tova proverqva dali veche sme svalyali
-        za tozi period i ako ne - svalya sam, bez potrebitelyat da natiska nishto."""
+        za tozi period i ako ne - svalya sam, bez potrebitelyat da natiska nishto.
+        Povtarya se na vsеki 3 chasa - programata chesto stoi otvorena s dni."""
+        self.app.after(3 * 60 * 60 * 1000, self._maybe_auto_refresh)
         if get_last_checked_period() == _current_reimb_period():
             return
         self._refresh_reimbursements(silent=True)
